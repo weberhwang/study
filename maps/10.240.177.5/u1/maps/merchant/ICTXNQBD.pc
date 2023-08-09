@@ -1,0 +1,609 @@
+#include <stdio.h>
+#include <string.h>
+#include <cype.h>
+#include <stdlib.h>
+#include <time.h>
+#include <errno.h>
+#include <unistd.h>
+
+#include <sqlda.h>
+#include <sqlcpr.h>
+
+#include "ytypedef.h"
+#include "yoracle.h"
+#include "common.h"
+#include "ICTXNQBD.h"
+
+#define FILENAME "FISC_TERMINAL.TXT"
+/* [] --SQL全域變數宣告區--*/
+EXEC SQL BEGIN DECLARE SECTION;
+  _SI_    iFileSeqNo = 0;
+  
+  varchar sFileName[80];
+  varchar sTodayDate[80]; 
+  varchar sRunDate[20]; 
+  varchar sRunTime[20];
+  varchar sDataDate[20];
+  varchar sBeginDate[20];
+  varchar sEndDate[20];
+  varchar sWorkingDate[20]; 
+  varchar sSQLWBuf     [10][128];
+  short   sSQLIndicator[10];
+  
+  shor    a[250];
+  
+  varchar saMerTerminalNo      [250][19 +1];
+  varchar saBatchNo            [250][5  +1]; 
+  varchar saSeqNo              [250][6  +1];
+  varchar saTxDate             [250][8  +1];
+  varchar saTxTime             [250][6  +1];
+  varchar saSubmitDate         [250][8  +1];
+  varchar saF2N3Date           [250][8  +1]; 
+  varchar saPostDate           [250][8  +1]; 
+  varchar saPayDueDate         [250][10 +1];
+  varchar saCardNo             [250][19 +1];
+  varchar saArnNo              [250][23 +1];
+  varchar saApprCd             [250][6  +1];
+  varchar saTxAmt              [250][11 +1];
+  varchar saTxCode             [250][2  +1];
+  varchar saSetlCd             [250][1  +1]; 
+  varchar saOrderNo            [250][19 +1];
+  varchar saCardType           [250][1  +1];
+  varchar saInstInd            [250][1  +1];
+  varchar saPayFlag            [250][1  +1]; 
+  varchar saBonusExChangedAmt  [250][12 +1];
+  varchar saIsaMerchantID      [250][15 +1]; 
+  varchar saIsaTerminalNo      [250][8  +1]; 
+  varchar saIsaSubMerchNo      [250][8  +1];
+  varchar saFiller             [250][49 +1];
+  varchar saFillerEnd          [250][1  +1];
+  
+  
+  
+  
+  varchar sMerTerminalNo       [19 +1];
+  varchar sBatchNo             [5  +1];
+  varchar sSeqNo               [6  +1]; 
+  varchar sTxDate              [8  +1];
+  varchar sTxTime              [6  +1];
+  varchar sSubmitDate          [8  +1];
+  varchar sF2N3Date            [8  +1];
+  varchar sPostDate            [8  +1];
+  varchar sPayDueDate          [10 +1];
+  varchar sCardNo              [19 +1];
+  varchar sArnNo               [23 +1]; 
+  varchar sApprCd              [6  +1];
+  varchar sTxAmt               [11 +1];
+  varchar sTxCode              [2  +1];
+  varchar sSetlCd              [1  +1];
+  varchar sOrderNo             [19 +1];
+  varchar sCardType            [1  +1];
+  varchar sInstInd             [1  +1];
+  varchar sPayFlag             [1  +1];
+  varchar sBonusExChangedAmt   [12 +1];
+  varchar sIsaMerchantID       [15 +1];
+  varchar sIsaTermnalNo        [8  +1];
+  varchar sIsaSubMerchNo       [8  +1];
+  varchar sFiller              [49 +1];
+  varchar sFillerEnd           [1  +1]; 
+  
+  
+  
+  
+  
+EXEC SQL END DECLARE SECTION;
+/*
+EXEC SQL INCLUDE sqlca;
+EXEC SQL INCLUDE oraca;
+*/  
+  
+/* [] --CURSOR 宣告-- */
+EXEC SQL DECLARE CUR_DETAIL CURSOR FOR
+         SELECT
+/* 1 */          NVL(rtrim(CONCAT(SUBSTR(T_EDC_LOG.MID,4,12), SUBSTR(T_EDC_LOG.TID,5,4))),' '),
+/* 2 */          CASE WHEN T_EDC_LOG.POS_ENTRY_MODE IN('05','07') THEN CONCAT('5', SUBSTR(LPAD(T_EDC_LOG.BATCH_NO, 6, '0'), 3, 4))
+                      WHEN T_EDC_LOG.POS_ENTRY_MODE is null and CARD_TYPE = 'S' THEN CONCAT('1', SUBSTR(LPAD(T_EDC_LOG.BATCH_NO, 6, '0'), 3, 4))
+					  WHEN T_EDC_LOG.POS_ENTRY_MODE is null and T_EDC_LOG.NEDC_MODE IN('Y','N') THEN CONCAT('0', SUBSTR(LPAD(T_EDC_LOG.BATCH_NO, 6, '0'),3 ,4))
+					  ELSE CONCAT('9', SUBSTR(LPAD(T_EDC_LOG.BATCH, 6, '0'), 3, 4))
+			     END,
+/* 3 */          NVL(rtrim(T_EDC_LOG.SYSTEM_TRACE_NO),' '),
+/* 4 */          NVL(rtrim(SUBSTR(T_EDC_LOG.FILE_TIME,1,8)),' '),
+/* 5 */          NVL(rtrim(SUBSTR(T_EDC_LOG.FILE_TIME,9,6)),' '), /* hhmmss*/
+/* 6 */          SUBSTR(T_EDC_LOG.CLOSE_TIME,1,8), /* 端末機傳送日 (EDC結帳日) */
+/* 7 */          CASE WHEN T_EDC_LOG.CARD_TYPE = 'S' THEN '0'
+                      WHEN T_EDC_LOG.NEDC_MODE = 'N' THEN SUBSTR(T_EDC_LOG.CLOSE_TIME,1,8)
+                      ELSE TO_CHAR(T_EDC_LOG,UPLOAD_DATE, 'yyyymmdd')
+                 END, /*F2N3清算系統給檔日期*/					  
+/* 8 */          TO_CHAR(T_EDC_LOG.UPLOAD_DATE, 'yyyymmdd'), /* 系統處理日期 另外 SELECT ACCT_DATE FROM T_MERCHANT_ACCT*/
+/* 9 */          TO_CHAR(T_EDC_LOG.ACCT_SEQ), /* 預計撥款日 另外 SELECT EST_PAY_DATE FROM T_MERCHANT_ACCT */
+/*10 */          NVL(rtrim(T_EDC_LOG.CARD_NO),' '),
+/*11 */          NVL(rtrim(T_EDC_LOG.ARN), ' '),
+/*12 */          NVL(rtrim(T_EDC_LOG.AUTH_CODE),' '),
+/*13 */          NVL(rtrim(TO_CHAR(T_EDC_LOG.AMOUNT * 100)),'0'),
+/*14 */          NVL(rtrim(TO_CHAR(T_EDC_LOG.TC_CODE)),' '),
+/*15 */          NVL(rtrim(TO_CHAR(T_EDC_LOG.SETTLE_TYPE),' '),
+/*16 */          CASE WHEN T_EDC_LOG.INSTALL_PERIOD !=0 THEN NVL(rtrim(T_EDC_LOG.INSTALL_ORDER_NO),' ')
+                 ELSL NVL(rtrim(ORDER_NO),' ') END,
+/*17 */          CASE WHEN T_EDC_LOG.CARD_TYPE ='S' THEN 'F' ELSE NVL(T_EDC_LOG.CARD_TYPE,' ') END,
+/*18 */          CASE WHEN rtrim(T_EDC_LOG.PAYMENT_TYPE) IN ('I','E') THEN 'I' ELSE ' ' END,
+/*19 */          CASE WHEN rtrim(T_EDC_LOG.PAYMENT_TYPE) IN ('1','2') THEN '1' E:SE ' ' END,
+/*20 */          CASE WHEN rtrim(T_EDC_LOG.PAYMENT_TYPE) IN ('1','2') rtrim(TO_CHAR((AMOUNT - REDEEM_AMOUNT)*100))
+                      ELSE '0' END,
+/*21 */          NVL(rtrim(T_EDC_LOG.MID),' '),
+/*22 */          NVL(rtrim(T_EDC_LOG.TID),' '),
+/*23 */          NVL(SUB_MID,' '),
+/*24 */          RPAD(' ', 49 ,' ' ),
+/*25 */          '.'
+        FROM T_EDC_LOG
+        WHERE
+              T_EDC_LOG.MARK = 'Y' and
+              T_EDC_LOG.TRANS_STATUS = '0' and
+              T_EDC_LOG.UPLOAD_DATE = :sRunDate;
+
+/* [] --全域變數宣告區-- */
+FILE *fp;         /* for output file */
+int  ChkBatch=0;  /* 檢查銀行是否有送件*/
+int  FBBAR_IDX     = 0;
+int  FBBAR_CNT     = 0; 
+long  FBBAR_BEFORE = 0;
+int   FBBAR_EOF    = 0;
+short check_flag;
+
+
+_SI_ iI, iJ, iK;
+_UC_ *CpProgramName;
+_UC_ *CpPathName;
+_UC_ *CpFileName;
+_UL_ LTotalRecord = 0;
+_UL_ LTotalSize = 0;
+_SD_ dCheckSum = 0;
+_SD_ dCheckSum1 = 0;
+_SD_ dCheckSum2 = 0;
+_UC_ CpMessage[150 + 1];
+_UC_ CaFileBaseName[128 + 1];
+_UC_ CaFileName[128 + 1];
+_UC_ CWBuf[4096];
+
+
+  unsigned char CFull[190] =
+    {"（）〔〕｛｝。，；：＿？！‵～＠＃＄％︿＆｜＼／－＋＝＊０１２３４５６７８９ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ　、＜＞『"};
+  unsigned char CHalf[95] =
+    {"()[]{}.,;:_?!`~@#$%^&|\\/-+=*0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ '<>\""};
+
+
+/* [] --函式宣告區------------------------------------------------- */
+void check_working_date(void);
+int  FETCH_A(void); /* 自 DETAIL 取得資料 */
+_VO_ vMakeData(_UC_ *);
+_VO_ vMakeOldHeader(_UC_ *);
+_VO_ vMakeNewHeader(_UC_ *);
+_VO_ vMakeCheckSumHeader(_UC_ *);
+_VO_ vMakeCheckSumData(_UC_ *);
+_VO_ vFillBuffer(_UC_ *, _UC_ *, _UI_, _UI_, _UC_, _UC_);
+_SC_ cGetModulus10CheckDigit(_SC_ *, _SI_);
+_SI_ iGetJulianDay(_SC_ *, _SC_ *);
+_SI_ iAscToHex(_UC_ *, _UC_ *, _US_);
+_UC_ iLogError(_UC_ *, _UC_ *, _SI_, _SC_, _SI_, _UC_ *);
+
+
+void vStyleHalfToFull(unsigned char *, unsigned char *, unsigned char);
+/* [] --主程式-- */
+int main(int argc, char *argv[])
+{
+  CpProgramName = argv[0];
+  for (iI = strlen(CpProgramName) -1; iI >0; iI--)
+  {
+    if (*(CpProgramName) -1; iI > 0; iI--)
+    {
+      iI++;
+      break;
+    }
+  }
+  CpProgramName += iI;
+
+  if ((argc != 3) && (argc != 5))
+  {
+    fprintf(stdout, "[Usage]: %s {PathName RunDate(YYYYMMDD) [BeginDate(YYYYMMDD) EndDate(YYYYMMDD)]\n", CpProgramName);
+    exit(1);
+  }
+  else
+  {
+    CpPathName = argv[1];
+    for (iI = strlen(CpPathName) - i; iI > 0; iI--)
+    {
+      iI++;
+      break;
+    }
+    CpFileName = CpPathName + iI;
+  }
+
+  if (!iConnectDB())
+  {
+    iLogError(CpProgramName, CpFileName, LTotalRecord, 'E', sqlca.sqlcode,
+	          sqlca.sqlerrm.sqlerrmc);
+    exit(1);
+  }
+  
+  if (strlen(argv[1]) == 0)
+  {
+    STRING_TO_VARCHAR(sFileName, FILENAME);
+  } else {
+    STRING_TO_VARCHAR(sFileName, argv[1]);
+  }  
+  for (iI = 0; iI < sFileName.len; iI++)
+  {
+    if (sFileName.arr[iI] == '.')
+	  break;
+	else 
+	  CaFileBaseName[iI] = sFileName.arr[iI];
+  }
+  CaFileBaseName[iI] = 0x00;
+  STRING_TO_VARCHAR(sRunDate, argv[2]);
+  if (argc == 5)
+  {
+    STRING_TO_VARCHAR(sDataDate,   argv[3]);
+	STRING_TO_VARCHAR(sBeginDate,  argv[3]);
+  } else {
+    STRING_TO_VARCHAR(sBeginDate,  sDataDate.arr);
+  }  
+  
+  EXEC SQL SELECT to_char(SYSDATE, 'yyyymmdd', to_char(SYSDATE, 'yyyymmddhh24miss')
+           INTO   :sTodayDate, :sRunTime
+		   FROM   DUAL;
+  if (argc == 5)
+  {
+    STRING_TO_VARCHAR(sEndDate,  argv[4]);
+  } else {
+    EXEC SQL SELECT to_char(SYSDATE - 1, 'yyyymmdd')
+	         INTO   :sEndDate
+			 FROM   DUAL;
+  }
+  
+  /*fprintf(stdout, "%s 程式開始執行: %s\n", argv[0], (char *) sTodayDate.arr);*/
+  iLogError(CpProgramName, "", 0, 'T', 0, "程式執行開始");
+  
+  check_working_date();
+  
+  /*--開啟Output檔案--*/
+  sprintf(CaFileName, "%s", CaFileBaseName);
+  if ((fp = fopen(CaFileName, "wt")) == NULL)
+  {
+    iLogError(CpProgramName, CaFileName, LTotalRecord, 'E', errno,
+	          "Can't Open Output File");
+	exit(-1);
+  }	
+  
+/*--自資料庫取得所須資料後組成Output檔--*/
+  EXEC SQL OPEN CUR_DETAIL;
+ 
+  if (sqlca.sqlcode != 0)
+  {
+    iLogError(CpProgramName, CpFileName, LTotalRecord, 'E', sqlca.sqlcode,
+              "Open Cursor Error");
+    exit(-1);
+  }
+
+  memset(CWBuf, ' ', sizeof(CWBuf));
+  LTotalRecord = 0;
+  
+  while ((check_flag == 0) && FETCH_A())
+  {
+    LTotalRecord++;
+    LTotalSize += sizeof(DETAIL);
+
+    memset(CWBuf, ' ', sizeof(CWBuf));
+    vMakeData(CWBuf);
+    if (fprintf(fp, "%s", CWBuf) > 0)
+      ;
+  }
+
+  /*若 ChkBatch 為 0 ，表示此次處理銀行並無送件*/
+  if(ChkBatch==0)
+  {
+    iLogError(CpProgramName, CpFileName, 0, 'T', 0,"程式執行結束(此次處理銀行並無送件)");
+    /*unlink(CaFileName);
+    exit(0);*/
+  }
+  fclose(fp);
+  fprintf(stdout, "Date: [%s][%s]\n", sBeginDate.arr, sEndDate.arr);
+  EXEC SQL CLOSE CUR_DETAIL;
+
+  iLogError(CpProgramName, CpFileName, LTotalRecord, 'T', 0, "程式執行結束");
+  vDisconnectDB();
+
+  fprintf(stdout, "Total %d Records, File Size %ld bytes\n",
+          LTotalRecord, LTotalSize);
+  return(0);
+}
+  
+/* [] -- */
+void check_working_date(void)
+{
+  check_flag = 0;
+  EXEC SQL SELECT min(to_char(DATE_D, 'yyyymmdd')) into :sWorkingDate :a
+           FROM   T_CALENDAR
+           WHERE  to_char(DATE_D, 'yyyymmdd') >= :sRunDate
+           AND    upper(working) = 'Y';
+
+  if (sqlca.sqlcode == 1403) {
+    sprintf(CpMessage,"SELECT FROM CALENDAR NOT FOUND !!date:%s ",sRunDate.arr);
+    fprintf(stdout, "%s\n", CpMessage);
+    iLogError(CpProgramName, "", 0, 'E', sqlca.sqlcode, CpMessage);
+    check_flag = 1;
+    /*exit(1);*/
+  } else if (sqlca.sqlcode != 0) {
+    sprintf(CpMessage,"SELECT FROM CALENDAR ERROR !!date:%s ",sRunDate.arr);
+	fprintf(stdout, "%s\n", CpMessage);
+	iLogError(CpProgramName, "", 0, 'E', sqlca.sqlcode, CpMessage);
+	check_flag = 1;
+	/*exit(1);*/
+  }  
+  sWorkingDate.arr[sWorkingDate.len] = '\0';
+}
+
+
+
+
+
+
+
+
+
+
+/* [ 自 DETAIL 取得資料 ] --*/
+int FETCH_A(void)
+{
+  int i = 0;
+  
+  if (FBBAR_IDX == 0)
+  {
+    if (FBBAR_EOF) return (0);
+    for (i = 0; i < 250; i++)
+    {
+      str2var(saMerTerminalNo         [i], NULLSTR);
+      str2var(saBatchNo               [i], NULLSTR);
+      str2var(saSeqNo                 [i], NULLSTR);
+      str2var(saTxDate                [i], NULLSTR);
+      str2var(saTxTime                [i], NULLSTR);
+      str2var(saSubmitDate            [i], NULLSTR);
+      str2var(saF2N3Date              [i], NULLSTR);
+      str2var(saPostDate              [i], NULLSTR);
+      str2var(saPayDueDate            [i], NULLSTR);
+      str2var(saCardNo                [i], NULLSTR);
+      str2var(saArnNo                 [i], NULLSTR);
+      str2var(saAppCd                 [i], NULLSTR);
+      str2var(saTxAmt                 [i], NULLSTR);
+      str2var(saTxCode                [i], NULLSTR);
+      str2var(saSetlCd                [i], NULLSTR);
+      str2var(saOrderNo               [i], NULLSTR);
+      str2var(saCardType              [i], NULLSTR);
+      str2var(saInstInd               [i], NULLSTR);
+      str2var(saPayFlag               [i], NULLSTR);
+      str2var(saBonusExChangedAmt     [i], NULLSTR);
+      str2var(saIsaMerchantID         [i], NULLSTR);
+      str2var(saIsaTerminalNo         [i], NULLSTR);
+      str2var(saIsaSubMerchNo         [i], NULLSTR);
+      str2var(saFiller                [i], NULLSTR);
+      str2var(saFillerEnd             [i], NULLSTR);
+    }
+	
+	
+	EXEC SQL FETCH CUR_DETAIL INTO
+	               :saMerTerminalNo      :a,
+	               :saBatchNo            :a,       
+	               :saSeqNo              :a,
+	               :saTxDate             :a,
+	               :saTxTime             :a,
+	               :saSubmitDate         :a,
+	               :saF2N3Date           :a,
+	               :saPostDate           :a,
+	               :saPayDueDate         :a,
+	               :saCardNo             :a,
+	               :saArnNo              :a,
+	               :saAppCd              :a,
+	               :saTxAmt              :a,
+	               :saTxCode             :a,
+	               :saSetlCd             :a,
+	               :saOrderNo            :a,
+	               :saCardType           :a,
+	               :saInstInd            :a,
+	               :saPayFlag            :a,
+	               :saBonusExChangedAmt  :a,
+	               :saIsaMerchantID      :a,
+	               :saIsaTerminalNo      :a,
+	               :saIsaSubMerchNo      :a,
+	               :saFiller             :a,
+				   :saFillerEnd          :a,
+	
+	
+    if ((sqlca.sqlcode != 0) && (sqlca.sqlcode != 1403))
+    {
+      iLogError(CpProgramName, CpFileName, LTotalRecord, 'E', sqlca.sqlcode,
+                "DETAIL fetch error");
+      exit(-1);
+    }
+
+    FBBAR_CNT    = sqlca.sqlerrd[2] - FBBAR_BEFORE;
+    FBBAR_BEFORE = sqlca.sqlerrd[2];
+    fprintf(stdout, " %ld Record Processing...\n", sqlca.sqlerrd[2]);
+    if (FBBAR_CNT > 0)
+      ChkBatch++;
+    if (sqlca.sqlcode == 1403)
+      FBBAR_EOF = 1;
+    if (FBBAR_CNT == 0)
+      return(0);
+  }
+  i = FBBAR_IDX;
+
+  STRING_TO_VARCHAR(sMerTerminalNo                          ,saMerTerminalNo                                   [i].arr);
+  STRING_TO_VARCHAR(sBatchNo                                ,saBatchNo                                         [i].arr);
+  STRING_TO_VARCHAR(sSeqNo                                  ,saSeqNo                                           [i].arr);
+  STRING_TO_VARCHAR(sTxDate                                 ,saTxDate                                          [i].arr);
+  STRING_TO_VARCHAR(sTxTime                                 ,saTxTime                                          [i].arr);
+  STRING_TO_VARCHAR(sSubmitDate                             ,saSubmitDate                                      [i].arr);
+  STRING_TO_VARCHAR(sF2N3Date                               ,saF2N3Date                                        [i].arr);
+  STRING_TO_VARCHAR(sPostDate                               ,saPostDate                                        [i].arr);
+  STRING_TO_VARCHAR(sPayDueDate                             ,saPayDueDate                                      [i].arr);
+  STRING_TO_VARCHAR(sCardNo                                 ,saCardNo                                          [i].arr);
+  STRING_TO_VARCHAR(sArnNo                                  ,saArnNo                                           [i].arr);
+  STRING_TO_VARCHAR(sApprCd                                 ,saApprCd                                          [i].arr);
+  STRING_TO_VARCHAR(sTxAmt                                  ,saTxAmt                                           [i].arr);
+  STRING_TO_VARCHAR(sTxCode                                 ,saTxCode                                          [i].arr);
+  STRING_TO_VARCHAR(sSetlCd                                 ,saSetlCd                                          [i].arr);
+  STRING_TO_VARCHAR(sOrderNo                                ,saOrderNo                                         [i].arr);
+  STRING_TO_VARCHAR(sCardType                               ,saCardType                                        [i].arr);
+  STRING_TO_VARCHAR(sInstInd                                ,saInstInd                                         [i].arr);
+  STRING_TO_VARCHAR(sPayFlag                                ,saPayFlag                                         [i].arr);                                                                                                             
+  STRING_TO_VARCHAR(sBonusExChangedAmt                      ,saBonusExChangedAmt                               [i].arr);                                                                                                             
+  STRING_TO_VARCHAR(sIsaMerchantID                          ,saIsaMerchantID                                   [i].arr);
+  STRING_TO_VARCHAR(sIsaTerminalNo                          ,saIsaTerminalNo                                   [i].arr);
+  STRING_TO_VARCHAR(sIsaSubMerchNo                          ,saIsaSubMerchNo                                   [i].arr);
+  STRING_TO_VARCHAR(sFiller                                 ,saFiller                                          [i].arr);
+  STRING_TO_VARCHAR(sFillerEnd                              ,saFillerEnd                                       [i].arr);
+
+  FBBAR_IDX++;                                                                                               
+  if (FBBAR_IDX == FBBAR_CNT)                                                                                
+    FBBAR_IDX = 0;                                                                                           
+  return(1);
+}	
+
+/* [] --*/
+void vMakeData(unsigned char *CpBuffer)
+{
+  _UC_ CWBuf[1024];
+  _SI_ iI, iJ, iK;
+  _UC_ *CpRegTel;
+  varchar sSubmitTime[8+1];
+  varchar sNewPostDate[8+1];
+  varchar sPayDate[8+1];
+  spDetail = CpBuffer;
+  
+  memset(CpBuffer, ';', sizeof(DETAIL));
+  
+/*1  */  vFillBuffer(spDetail->CMerTerminalNo, sMerTerminalNo.arr, sizeof(spDetail->CMerTerminalNo), 0, ' ', ENABLE_); 
+/*2  */  vFillBuffer(spDetail->CBatchNo, sBatchNo.arr, sizeof(spDetail->CBatchNo), 0, '0', NULL_);
+/*3  */  vFillBuffer(spDetail->CSeqNo, sSeqNo.arr, sizeof(spDetail->CSeqNo), 0, '0', NULL_);
+/*4  */  vFillBuffer(spDetail->CTxDate, sTxDate.arr, sizeof(spDetail->CTxDate), 0, ' ', ENABLE_);
+/*5  */  vFillBuffer(spDetail->CTxTime, sTxTime.arr, sizeof(spDetail->CTxTime), 0, ' ', ENABLE_);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*6  */  vFillBuffer(spDetail->CSubmitDate, sSubmitDate.arr, sizeof(spDetail->CSubmitDate), 0, ' ', ENABLE_);
+/*7  */  vFillBuffer(spDetail->CF2N3Date, sF2N3Date.arr, sizeof(spDetail->CF2N3Date), 0, ' ', ENABLE_);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*8  */  vFillBuffer(spDetail->CPostDate, sPostDate.arr, sizeof(spDetail->CPostDate), 0, '0', ENABLE_);
+
+  str2var(sPayDate, "");
+  
+  if (sPayDueDate.len > 0)
+  {
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+      EXEC SQL SELECT TO_CHAR(EST_PAY_DATE,'yyyymmdd')
+	  INTO   :sPayDate
+	  FROM   T_MERCHANT_ACCT
+	  WHERE  MID = :sIsaMerchantID and
+	         
+			 ACCT_SEQ = :sPayDueDate and
+			 rowname = 1;
+			 
+			 
+			
+
+  }			
+  
+/*9  */  vFillBuffer(spDetail->CPayDueDate, sPayDate.arr, sizeof(spDetail->CPayDueDate), 0, '0', ENABLE_);
+/*10 */  vFillBuffer(spDetail->CCardNo, sCardNo.arr, sizeof(spDetail->CCardNo), 0, ' ', ENABLE_);
+/*11 */  vFillBuffer(spDetail->CArnNo, sArnNo.arr, sizeof(spDetail->CArnNo), 0, ' ', ENABLE_);
+/*12 */  vFillBuffer(spDetail->CApprCd, sApprCd.arr, sizeof(spDetail->CApprCd), 0, ' ', ENABLE_);
+/*13 */  vFillBuffer(spDetail->CTxAmt, sTxAmt.arr, sizeof(spDetail->CTxAmt), 0, '0', NULL_);
+/*14 */  vFillBuffer(spDetail->CTxCode, sTxCode.arr, sizeof(spDetail->CTxCode), 0, ' ', ENABLE_);
+/*15 */  vFillBuffer(spDetail->CSetlCd, sSetlCd.arr, sizeof(spDetail->CSetlCd), 0, ' ', ENABLE_);
+/*16 */  vFillBuffer(spDetail->COrderNo, sOrderNo.arr, sizeof(spDetail->COrderNo), 0, ' ', ENABLE_);
+/*17 */  vFillBuffer(spDetail->CCardType, sCardType.arr, sizeof(spDetail->CCardType), 0, ' ', ENABLE_); 
+/*18 */  vFillBuffer(spDetail->CInstInd, sInstInd.arr, sizeof(spDetail->CInstInd), 0, ' ', ENABLE_); 
+/*19 */  vFillBuffer(spDetail->CPayFlag, sPayFlag.arr, sizeof(spDetail->CPayFlag), 0, ' ', ENABLE_); 
+/*20 */  vFillBuffer(spDetail->CBonusExChangedAmt, sBonusExChangedAmt.arr, sizeof(spDetail->CBonusExChangedAmt), 0, '0', NULL_);
+/*21 */  vFillBuffer(spDetail->CIsaMerchantID, sIsaMerchantID.arr, sizeof(spDetail->CIsaMerchantID), 0, ' ', ENABLE_);
+/*22 */  vFillBuffer(spDetail->CIsaTerminalNo, sIsaTerminalNo.arr, sizeof(spDetail->CIsaTerminalNo), 0, ' ', ENABLE_);
+/*23 */  vFillBuffer(spDetail->CIsaSubMerchNo, sIsaSubMerchNo.arr, sizeof(spDetail->CIsaSubMerchNo), 0, ' ', ENABLE_);
+/*24 */  vFillBuffer(spDetail->CFiller, sFiller.arr, sizeof(spDetail->CFiller), 0, ' ', ENABLE_); 
+/*25 */  vFillBuffer(spDetail->CFillerEnd, sFillerEnd.arr, sizeof(spDetail->CFillerEnd), 0, ' ', ENABLE_); 
+
+
+//  spDetail->CCr[0] = 0x0D;
+  spDetail->CNl[0] = 0x0A;
+  CpBuffer[sizeof(DETAIL)] = NULL_;
+}
+
+
+void vStyleHalfToFull(unsigned char *CpTarget, unsigned char *CpSource, unsigned char CLength)
+{
+  for (iI = iJ = 0; iI < CLength;)
+  {
+    if (CpSource[iI] >= 0x80) // Chinese Full Style
+    {
+      CpTarget[iJ] = CpSource[iI];
+      iI++;
+      iJ++;
+      CpTarget[iJ] = CpSource[iI];
+      iI++;
+      iJ++;
+    } else { // Half Style
+      for (iK = 0; iK < sizeof(CHalf); iK++)
+      {
+        if (CHalf[iK] == CpSource[iI])
+        {
+          iI++;
+          CpTarget[iJ] = CFull[iK * 2];
+          iJ++;
+          CpTarget[iJ] = CFull[iK * 2 + 1];
+          iJ++;
+          break;
+        }
+      }
+      if (iK >= sizeof(CHalf))
+      {
+        iI++;
+      }
+    }
+  }
+  CpTarget[iJ] = 0x00;
+}
+
+
+EXEC SQL INCLUDE "inserrlog.pc";
+
